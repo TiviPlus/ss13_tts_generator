@@ -14,8 +14,6 @@ namespace tts_generator
         private static String ConverterProgram = "OggEnc.exe";
         
         static void Main(string[] args)
-        //[DllExport("generate", CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]
-        //public static void generate(string msg)
         {
             if (args.Length <= 0)
             {
@@ -23,6 +21,7 @@ namespace tts_generator
             }
 
             List<string> argv = new List<string>();
+            string outfile = "";
             string message = "";
             string voice = "";
             
@@ -34,21 +33,27 @@ namespace tts_generator
             // parse arguments
             for (int k = 0; k < argv.Count; k++)
             {
+                string _arg = argv[k].ToLower();
+
                 if (k == argv.Count-1 && message == "")
                 {
                     message = argv[k];
                 }
 
-                if ((argv[k].ToLower() == "-t" || argv[k].ToLower() == "--text") && k < argv.Count-1)
+                if ((_arg == "-t" || _arg == "--text") && k < argv.Count - 1)
                 {
                     message = argv[++k];
                 }
-                else if ((argv[k].ToLower() == "-v" || argv[k].ToLower() == "--voice") && k < argv.Count-1)
+                else if ((_arg == "-v" || _arg == "--voice") && k < argv.Count - 1)
                 {
                     voice = argv[++k];
                 }
+                else if ((_arg == "-o" || _arg == "--output") && k < argv.Count - 1)
+                {
+                    outfile = argv[++k];
+                }
             }
-
+            
             // Check to make sure we have all we need
             if (message.Length <= 0)
             {
@@ -99,12 +104,17 @@ namespace tts_generator
                     break;
             }
 
-            fte.SpeakToWavFile(programPath + "speech.wav", message);
+            if (String.IsNullOrEmpty(outfile))
+            {
+                outfile = "speech.wav";
+            }
+
+            fte.SpeakToWavFile(programPath + outfile, message);
             
             Process converter = new Process();
             
             converter.StartInfo.FileName = programPath + ConverterProgram;
-            converter.StartInfo.Arguments = "\"" + programPath + "speech.wav" + "\"";
+            converter.StartInfo.Arguments = "\"" + programPath + outfile + "\"";
             converter.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
             converter.Start();
             
