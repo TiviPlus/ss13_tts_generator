@@ -109,6 +109,8 @@ namespace tts_generator
                 outfile = "speech.wav";
             }
 
+            outfile = outfile.Replace("\"", "");
+
             fte.SpeakToWavFile(programPath + outfile, message);
             
             Process converter = new Process();
