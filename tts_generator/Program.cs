@@ -7,6 +7,7 @@ using SharpTalk;
 using System.IO;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 
 namespace tts_generator
 {
@@ -35,149 +36,296 @@ namespace tts_generator
         }
     }
 
-    class Program
+    class TTS_Generator
     {
-        private static String ConverterProgram = "OggEnc.exe";
+        private static string ConverterProgram = "OggEnc.exe";
+        private static string regex_voice = "^voice=(?<voice>.*)$";
+        private static string regex_text = "^text=(?<text>.*)$";
+        private static string regex_name = "^name=(?<name>.*)$";
 
-        static void Main(string[] args)
+        private static string program_folder
         {
-            if (args.Length <= 0)
+            get
             {
-                Environment.Exit(-1);
+                string p = new Uri(Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().CodeBase)).LocalPath;
+                return p;
+            }
+        }
+
+        private static string data_folder
+        {
+            get
+            {
+                string p = program_folder;
+                return Path.Combine(p, "data\\");
+            }
+        }
+
+        private static FonixTalkEngine fte = null;
+
+        static void Log(string message, bool excludeTimestamp = false)
+        {
+            if (String.IsNullOrEmpty(message))
+            {
+                return;
             }
 
-            List<string> argv = new List<string>();
-            string outfile = "";
-            string message = "";
-            string voice = "";
-            
-            foreach (string s in args)
+            if (!excludeTimestamp)
             {
-                argv.Add(s);
-            }
-            
-            // parse arguments
-            for (int k = 0; k < argv.Count; k++)
-            {
-                string _arg = argv[k].ToLower();
-
-                if (k == argv.Count-1 && message == "")
-                {
-                    message = argv[k];
-                }
-
-                if ((_arg == "-t" || _arg == "--text") && k < argv.Count - 1)
-                {
-                    message = argv[++k];
-                }
-                else if ((_arg == "-v" || _arg == "--voice") && k < argv.Count - 1)
-                {
-                    voice = argv[++k];
-                }
-                else if ((_arg == "-o" || _arg == "--output") && k < argv.Count - 1)
-                {
-                    outfile = argv[++k];
-                }
-            }
-            
-            // Check to make sure we have all we need
-            if (message.Length <= 0)
-            {
-                Environment.Exit(-1);
+                message = DateTime.Now.ToShortDateString() + " " + DateTime.Now.ToShortTimeString() + " - " + message;
             }
 
-            String programPath = new Uri(System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().CodeBase)).LocalPath;
-
-            if (!programPath.EndsWith("\\"))
-            {
-                programPath += "\\";
-            }
-            
-            FonixTalkEngine fte = new FonixTalkEngine();
-            
-            // check voices
-            switch(voice.ToLower().Trim())
+            Console.WriteLine(message);
+            File.AppendAllText(Path.Combine(program_folder, "log.txt"), message + "\n");
+        }
+        
+        static TtsVoice checkVoice(string voice)
+        {
+            switch (voice.ToLower().Trim())
             {
                 case "betty":
-                    fte.Voice = TtsVoice.Betty;
-                    break;
+                    return TtsVoice.Betty;
                 case "dennis":
-                    fte.Voice = TtsVoice.Dennis;
-                    break;
+                    return TtsVoice.Dennis;
                 case "frank":
-                    fte.Voice = TtsVoice.Frank;
-                    break;
+                    return TtsVoice.Frank;
                 case "harry":
-                    fte.Voice = TtsVoice.Harry;
-                    break;
+                    return TtsVoice.Harry;
                 case "kit":
-                    fte.Voice = TtsVoice.Kit;
-                    break;
+                    return TtsVoice.Kit;
                 case "paul":
-                    fte.Voice = TtsVoice.Paul;
-                    break;
+                    return TtsVoice.Paul;
                 case "rita":
-                    fte.Voice = TtsVoice.Rita;
-                    break;
+                    return TtsVoice.Rita;
                 case "ursula":
-                    fte.Voice = TtsVoice.Ursula;
-                    break;
+                    return TtsVoice.Ursula;
                 case "wendy":
-                    fte.Voice = TtsVoice.Wendy;
-                    break;
+                    return TtsVoice.Wendy;
                 default:
-                    fte.Voice = TtsVoice.Paul;
-                    break;
+                    return TtsVoice.Paul;
             }
+        }
 
-            if (String.IsNullOrEmpty(outfile))
+        static void generateTTS(TtsVoice? voice, string text, string file)
+        {
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(file) || voice == null || fte == null)
             {
-                outfile = "speech.wav";
+                return;
             }
-
-            char[] charArray = outfile.ToCharArray();
-            Array.Reverse(charArray);
-            String outfileExtensionless = new string(charArray);
-            int dotIndex = outfileExtensionless.IndexOf(".");
-            outfileExtensionless = outfileExtensionless.Substring(dotIndex + 1);
-            charArray = outfileExtensionless.ToCharArray();
-            Array.Reverse(charArray);
-            outfileExtensionless = new string(charArray);
-
+            
             /* 
              * The process for generating TTS:
              * 1. Create .lock file
              * 2. Create .wav file
              * 3. Convert to .ogg
-             * 4. Create .data file (containing audio length)
+             * 4. Create .meta file (containing audio length)
              * 5. Delete .lock file
              */
 
             /* Lock file */
-            String lockFile = outfileExtensionless + ".lock";
-            FileStream fs = File.Create(programPath + lockFile);
-            fs.Close();            
+            File.WriteAllText(file + ".lock", "");
 
-            /* Wav file */
-            outfile = outfile.Replace("\"", "");
-            fte.SpeakToWavFile(programPath + outfile, message);
-            
-            /* Ogg file */
-            Process converter = new Process();            
-            converter.StartInfo.FileName = programPath + ConverterProgram;
-            converter.StartInfo.Arguments = "\"" + programPath + outfile + "\"";
+            /* .wav file */
+            fte.Voice = (TtsVoice)voice;
+            fte.SpeakToWavFile(file + ".wav", text);
+
+            /* Convert to .ogg */
+            Process converter = new Process();
+            converter.StartInfo.FileName = ConverterProgram;
+            converter.StartInfo.WorkingDirectory = program_folder;
+            converter.StartInfo.Arguments = file + ".wav";
             converter.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
             converter.Start();
+            converter.WaitForExit();
 
-            /* Metadata file */
-            String metaFile = outfileExtensionless + ".meta";
-            int length = SoundInfo.GetSoundLength(programPath + outfile);
-            File.WriteAllText(programPath + metaFile, length.ToString());
+            /* Meta file */
+            int length = SoundInfo.GetSoundLength(file + ".wav");
+            File.WriteAllText(file + ".meta", length.ToString());
 
             /* Delete lock */
-            File.Delete(programPath + lockFile);
+            File.Delete(file + ".lock");
+        }
 
-            Environment.Exit(0);
+        static string findRequest()
+        {
+            string output = "";
+
+            /* Check for any request files */
+            string[] files = Directory.GetFiles(data_folder, "*.request", SearchOption.AllDirectories);
+            string[] locks = Directory.GetFiles(data_folder, "*.rlock", SearchOption.AllDirectories);
+
+            if (files.Length > 0)
+            {
+                /* Make sure this file isn't locked */
+                foreach (string s in files)
+                {
+                    FileInfo sfi = new FileInfo(s);
+                    bool isLocked = false;
+
+                    foreach (string l in locks)
+                    {
+                        FileInfo lfi = new FileInfo(l);
+
+                        if (sfi.Name == lfi.Name)
+                        {
+                            isLocked = true;
+                            break;
+                        }
+                    }
+
+                    if (isLocked)
+                    {
+                        continue;
+                    } else
+                    {
+                        output = s;
+                        break;
+                    }
+                }
+            }
+
+            return output;
+        }
+
+        static bool AlreadyRunning()
+        {
+            Process current = Process.GetCurrentProcess();
+            Process[] processes = Process.GetProcessesByName(current.ProcessName);
+
+            foreach (Process p in processes)
+            {
+                if (p.Id != current.Id)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        static void Main(string[] args)
+        {
+            if (AlreadyRunning())
+            {
+                Environment.Exit(0);
+            }
+
+            fte = new FonixTalkEngine();
+
+            /* Create data folder */
+            if (!Directory.Exists(data_folder))
+            {
+                Directory.CreateDirectory(data_folder);
+            }
+
+            DirectoryInfo di = new DirectoryInfo(data_folder);
+
+            /* Empty out the data folder */
+            foreach (FileInfo fi in di.GetFiles())
+            {
+                if (fi.Extension == ".wav" || fi.Extension == ".ogg" || fi.Extension == ".lock" || fi.Extension == ".meta" || fi.Extension == ".request" || fi.Extension == ".rlock")
+                {
+                    fi.Delete();
+                }
+            }
+
+            Log("Started successfully!");
+
+            while (true)
+            {
+                try
+                {
+                    if (fte == null)
+                    {
+                        throw new Exception("FonixTalkEngine not started!");
+                    }
+
+                    
+                    string working_file = findRequest();
+
+                    if (String.IsNullOrEmpty(working_file))
+                    {
+                        continue;
+                    }
+
+                    if (!File.Exists(working_file))
+                    {
+                        Log("File '" + working_file + "' could not be found!");
+                        continue;
+                    }
+
+                    string name = "";
+                    Log(working_file);
+
+                    /* Open the request
+                     * 
+                     * We should see three lines:
+                     *   name=123johnfg
+                     *   voice=paul
+                     *   text=hello world
+                     */
+
+                    StreamReader sr = new StreamReader(working_file);
+                    string line = "";
+
+                    if (sr != null)
+                    {
+                        string text = "";
+                        TtsVoice? voice = null;
+
+                        while ((line = sr.ReadLine()) != null)
+                        {
+                            Match match = null;
+
+                            if ((match = Regex.Match(line, regex_voice)).Length > 0)
+                            {
+                                voice = checkVoice(match.Groups["voice"].Value);
+                                continue;
+                            }
+
+                            if ((match = Regex.Match(line, regex_text)).Length > 0)
+                            {
+                                text = match.Groups["text"].Value;
+                                continue;
+                            }
+
+                            if ((match = Regex.Match(line, regex_name)).Length > 0)
+                            {
+                                name = match.Groups["name"].Value;
+                                continue;
+                            }
+                        }
+
+                        if (String.IsNullOrEmpty(name))
+                        {
+                            Log("Name not found in '" + working_file + "'!");
+                        } else if (String.IsNullOrEmpty(text))
+                        {
+                            Log("Text not found in '" + working_file + "'!");
+                        } else
+                        {
+                            generateTTS(voice, text, Path.Combine(data_folder, name));
+                        }
+
+                        sr.Close();
+                    } else
+                    {
+                        Log("Unable to open '" + working_file + "'!");
+                    }
+
+                    /* Delete the request file */
+                    File.Delete(working_file);
+                }
+                catch(Exception ex)
+                {
+                    if (ex != null)
+                    {
+                        Log(ex.Message);
+                    }
+
+                    break;
+                }
+            }
         }
     }
 }
