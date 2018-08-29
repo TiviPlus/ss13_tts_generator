@@ -166,7 +166,7 @@ namespace tts_generator
                     {
                         FileInfo lfi = new FileInfo(l);
 
-                        if (sfi.Name == lfi.Name)
+                        if (Path.GetFileNameWithoutExtension(sfi.Name) == Path.GetFileNameWithoutExtension(lfi.Name))
                         {
                             isLocked = true;
                             break;
