@@ -62,7 +62,7 @@ namespace tts_generator
         }
 
         private static FonixTalkEngine fte = null;
-
+        
         static void Log(string message, bool excludeTimestamp = false)
         {
             if (String.IsNullOrEmpty(message))
@@ -114,48 +114,52 @@ namespace tts_generator
             }
             
             /* 
-             * The process for generating TTS:
-             * 1. Create .lock file
-             * 2. Create .wav file
-             * 3. Convert to .ogg
-             * 4. Create .meta file (containing audio length)
-             * 5. Delete .lock file
+             * To make sure we don't prematurely send a sound file
+             * ALl files start off as .tmp and are renamed when it's finished
+             * Process:
+             *   1. Create .wav file
+             *   2. Convert to .ogg file
+             *   3. Find length of .wav file
+             *   4. Delete .wav file
+             *   5. Write .meta file
              */
-
-            /* Lock file */
-            File.WriteAllText(file + ".lock", "");
-
+             
             /* .wav file */
             fte.Voice = (TtsVoice)voice;
-            fte.SpeakToWavFile(file + ".wav", text);
+            fte.SpeakToWavFile(file + ".tmp", text);
+            File.Move(file + ".tmp", file + ".wav");
 
             /* Convert to .ogg */
             Process converter = new Process();
             converter.StartInfo.FileName = ConverterProgram;
             converter.StartInfo.WorkingDirectory = program_folder;
-            converter.StartInfo.Arguments = file + ".wav";
+            converter.StartInfo.Arguments = file + ".tmp";
             converter.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
             converter.Start();
             converter.WaitForExit();
+            File.Move(file + ".tmp", file + ".ogg");
 
             /* Meta file */
             int length = SoundInfo.GetSoundLength(file + ".wav");
-            File.WriteAllText(file + ".meta", length.ToString());
+            File.Delete(file + ".wav");
+            File.WriteAllText(file + ".tmp", length.ToString());
+            File.Move(file + ".tmp", file + ".meta");
 
-            /* Delete lock */
-            File.Delete(file + ".lock");
+            /* Reset engine */
+            fte.Rate = 100;
         }
 
-        static string findRequest()
+        static List<string> findRequests()
         {
-            string output = "";
+            List<string> requests = new List<string>();
 
             /* Check for any request files */
             string[] files = Directory.GetFiles(data_folder, "*.request", SearchOption.AllDirectories);
-            string[] locks = Directory.GetFiles(data_folder, "*.rlock", SearchOption.AllDirectories);
 
             if (files.Length > 0)
             {
+                string[] locks = Directory.GetFiles(data_folder, "*.rlock", SearchOption.AllDirectories);
+
                 /* Make sure this file isn't locked */
                 foreach (string s in files)
                 {
@@ -178,13 +182,12 @@ namespace tts_generator
                         continue;
                     } else
                     {
-                        output = s;
-                        break;
+                        requests.Add(s);
                     }
                 }
             }
 
-            return output;
+            return requests;
         }
 
         static bool AlreadyRunning()
@@ -194,7 +197,7 @@ namespace tts_generator
 
             foreach (Process p in processes)
             {
-                if (p.Id != current.Id)
+                if (p.Id != current.Id && p.StartInfo.WorkingDirectory == current.StartInfo.WorkingDirectory)
                 {
                     return true;
                 }
@@ -228,102 +231,93 @@ namespace tts_generator
                     fi.Delete();
                 }
             }
-
-            Log("Started successfully!");
-
+            
             while (true)
             {
+                /* Hacky but wait a lil before trying again */
+                System.Threading.Thread.Sleep(10);
+
                 try
                 {
                     if (fte == null)
                     {
-                        throw new Exception("FonixTalkEngine not started!");
+                        fte = new FonixTalkEngine();
                     }
 
+                    List<string> requests = findRequests();
                     
-                    string working_file = findRequest();
-
-                    if (String.IsNullOrEmpty(working_file))
+                    while (requests.Count > 0)
                     {
-                        continue;
-                    }
 
-                    if (!File.Exists(working_file))
-                    {
-                        Log("File '" + working_file + "' could not be found!");
-                        continue;
-                    }
+                        string working_file = requests[0];
+                        requests.RemoveAt(0);
 
-                    string name = "";
-                    Log(working_file);
-
-                    /* Open the request
-                     * 
-                     * We should see three lines:
-                     *   name=123johnfg
-                     *   voice=paul
-                     *   text=hello world
-                     */
-
-                    StreamReader sr = new StreamReader(working_file);
-                    string line = "";
-
-                    if (sr != null)
-                    {
-                        string text = "";
-                        TtsVoice? voice = null;
-
-                        while ((line = sr.ReadLine()) != null)
+                        if (String.IsNullOrEmpty(working_file))
                         {
-                            Match match = null;
-
-                            if ((match = Regex.Match(line, regex_voice)).Length > 0)
-                            {
-                                voice = checkVoice(match.Groups["voice"].Value);
-                                continue;
-                            }
-
-                            if ((match = Regex.Match(line, regex_text)).Length > 0)
-                            {
-                                text = match.Groups["text"].Value;
-                                continue;
-                            }
-
-                            if ((match = Regex.Match(line, regex_name)).Length > 0)
-                            {
-                                name = match.Groups["name"].Value;
-                                continue;
-                            }
+                            continue;
                         }
 
-                        if (String.IsNullOrEmpty(name))
+                        if (!File.Exists(working_file))
                         {
-                            Log("Name not found in '" + working_file + "'!");
-                        } else if (String.IsNullOrEmpty(text))
-                        {
-                            Log("Text not found in '" + working_file + "'!");
-                        } else
-                        {
-                            generateTTS(voice, text, Path.Combine(data_folder, name));
+                            continue;
                         }
 
-                        sr.Close();
-                    } else
-                    {
-                        Log("Unable to open '" + working_file + "'!");
-                    }
+                        string name = "";
 
-                    /* Delete the request file */
-                    File.Delete(working_file);
+                        /* Open the request
+                         * 
+                         * We should see three lines:
+                         *   name=123johnfg
+                         *   voice=paul
+                         *   text=hello world
+                         */
+
+                        StreamReader sr = new StreamReader(working_file);
+                        string line = "";
+
+                        if (sr != null)
+                        {
+                            string text = "";
+                            TtsVoice? voice = null;
+
+                            while ((line = sr.ReadLine()) != null)
+                            {
+                                Match match = null;
+
+                                if ((match = Regex.Match(line, regex_voice)).Length > 0)
+                                {
+                                    voice = checkVoice(match.Groups["voice"].Value);
+                                    continue;
+                                }
+
+                                if ((match = Regex.Match(line, regex_text)).Length > 0)
+                                {
+                                    text = match.Groups["text"].Value;
+                                    continue;
+                                }
+
+                                if ((match = Regex.Match(line, regex_name)).Length > 0)
+                                {
+                                    name = match.Groups["name"].Value;
+                                    continue;
+                                }
+                            }
+                            
+                            if (!String.IsNullOrEmpty(name) && !String.IsNullOrEmpty(text))
+                            {
+                                generateTTS(voice, text, Path.Combine(data_folder, name));
+                            }
+
+                            sr.Close();
+                        }
+
+                        /* Delete the request file */
+                        File.Delete(working_file);
+                    }
                 }
-                catch(Exception ex)
+                catch
                 {
-                    if (ex != null)
-                    {
-                        Log(ex.Message);
-                    }
 
-                    break;
                 }
             }
         }
