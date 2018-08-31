@@ -112,6 +112,11 @@ namespace tts_generator
             {
                 return;
             }
+
+            if (File.Exists(file + ".tmp"))
+            {
+                File.Delete(file + ".tmp");
+            }
             
             /* 
              * To make sure we don't prematurely send a sound file
@@ -123,7 +128,7 @@ namespace tts_generator
              *   4. Delete .wav file
              *   5. Write .meta file
              */
-             
+
             /* .wav file */
             fte.Voice = (TtsVoice)voice;
             fte.SpeakToWavFile(file + ".tmp", text);
@@ -133,7 +138,8 @@ namespace tts_generator
             Process converter = new Process();
             converter.StartInfo.FileName = ConverterProgram;
             converter.StartInfo.WorkingDirectory = program_folder;
-            converter.StartInfo.Arguments = file + ".tmp";
+            converter.StartInfo.Arguments += " -o \"" + file + ".tmp\" ";
+            converter.StartInfo.Arguments += "\"" + file + ".wav\"";
             converter.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
             converter.Start();
             converter.WaitForExit();
@@ -145,8 +151,8 @@ namespace tts_generator
             File.WriteAllText(file + ".tmp", length.ToString());
             File.Move(file + ".tmp", file + ".meta");
 
-            /* Reset engine */
-            fte.Rate = 100;
+            /* Reset engine to default rate */
+            fte.Rate = 200;
         }
 
         static List<string> findRequests()
@@ -226,7 +232,7 @@ namespace tts_generator
             /* Empty out the data folder */
             foreach (FileInfo fi in di.GetFiles())
             {
-                if (fi.Extension == ".wav" || fi.Extension == ".ogg" || fi.Extension == ".lock" || fi.Extension == ".meta" || fi.Extension == ".request" || fi.Extension == ".rlock")
+                if (fi.Extension == ".wav" || fi.Extension == ".ogg" || fi.Extension == ".tmp" || fi.Extension == ".meta" || fi.Extension == ".request" || fi.Extension == ".rlock")
                 {
                     fi.Delete();
                 }
@@ -315,9 +321,9 @@ namespace tts_generator
                         File.Delete(working_file);
                     }
                 }
-                catch
+                catch(Exception ex)
                 {
-
+                    Console.WriteLine(ex.Message);
                 }
             }
         }
