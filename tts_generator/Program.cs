@@ -35,6 +35,55 @@ namespace tts_generator
             return length;
         }
     }
+    
+    class Autoshutdown
+    {
+        static bool wait;
+
+        static void Main(string[]args)
+        {
+            appRunning("dreamdaemon");
+        }
+        
+        static void appRunning(string appName="optinal")
+        {
+            Process[] ProcessList = Process.GetProcesses();
+
+            foreach (Process p in ProcessList)
+            {
+                if (p.ProcessName.Contains(appName))
+                {
+                    wait = true;
+                    Console.WriteLine("Will check again in 1 minute");
+                    break;
+
+                }
+                else
+                {
+                    wait = false;
+                }
+            }
+
+            if (wait == false)
+            {
+                string strCmdText;
+                strCmdText = "/C taskkill /F /IM tts_generator.exe /T";
+                System.Diagnostics.Process.Start("CMD.exe", strCmdText);
+                Console.WriteLine("Stopped TTS");
+            }
+            else
+            {
+                checkAgain(appName);
+            }
+        }
+
+        static void checkAgain(string p)
+        {   
+            System.Threading.Thread.Sleep(60 * 1000);
+            appRunning(p);
+        }
+    }
+
 
     class TTS_Generator
     {
