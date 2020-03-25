@@ -54,7 +54,6 @@ namespace tts_generator
                 if (p.ProcessName.Contains(appName))
                 {
                     wait = true;
-                    Console.WriteLine("Will check again in 1 minute");
                     break;
 
                 }
@@ -69,7 +68,6 @@ namespace tts_generator
                 string strCmdText;
                 strCmdText = "/C taskkill /F /IM tts_generator.exe /T";
                 System.Diagnostics.Process.Start("CMD.exe", strCmdText);
-                Console.WriteLine("Stopped TTS");
             }
             else
             {
